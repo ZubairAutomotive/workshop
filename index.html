@@ -216,7 +216,11 @@ const TEXT = {
     exportHint:'ملف الإكسل فيه شيت خاص لكل موظف بنفس تنسيق ورقة العمل الأصلية، جاهز للنسخ واللصق في الشيت الرئيسي.',
     btnExport:'تنزيل ملف Excel', noMatch:'لا توجد سجلات مطابقة', refresh:'تحديث',
     statToday:'حركات اليوم', statWeek:'حركات آخر 7 أيام', statInNow:'سيارات داخل الورشة الآن', statTotal:'إجمالي السجلات',
-    chartTitle:'أكثر الموديلات تكراراً', inWorkshopTitle:'السيارات الموجودة حالياً في الورشة',
+    chartTitle:'أكثر الموديلات تكراراً (دخول)', inWorkshopTitle:'السيارات الموجودة حالياً في الورشة',
+    statTodayIn:'دخول اليوم', statTodayOut:'خروج اليوم',
+    statInNow:'في الورشة الآن', statTotalIn:'إجمالي السيارات المستقبَلة',
+    alertTitle:'⚠️ سيارات تجاوزت أسبوع في الورشة', alertNone:'لا توجد سيارات تجاوزت أسبوع',
+    daysIn:(n)=>`${n} يوم`,
     noneInWorkshop:'لا توجد سيارات داخل الورشة حالياً', inSince:(d,t)=>`دخلت ${d} الساعة ${t}`,
     staffListTitle:'قائمة الموظفين', newStaffPh:'اسم موظف جديد', add:'إضافة',
     modelsTitle:'قائمة موديلات السيارات', newModelPh:'موديل جديد',
@@ -259,7 +263,11 @@ const TEXT = {
     exportHint:'The Excel file has one sheet per staff member, formatted like the original paper log — ready to copy into the master sheet.',
     btnExport:'Download Excel file', noMatch:'No matching records', refresh:'Refresh',
     statToday:'Movements today', statWeek:'Last 7 days', statInNow:'Cars in workshop now', statTotal:'Total records',
-    chartTitle:'Most frequent models', inWorkshopTitle:'Cars currently in the workshop',
+    chartTitle:'Most frequent models (IN only)', inWorkshopTitle:'Cars currently in the workshop',
+    statTodayIn:'IN today', statTodayOut:'OUT today',
+    statInNow:'In workshop now', statTotalIn:'Total cars received (all time)',
+    alertTitle:'⚠️ Cars over 1 week in workshop', alertNone:'No cars over 1 week',
+    daysIn:(n)=>`${n} days`,
     noneInWorkshop:'No cars currently in the workshop', inSince:(d,t)=>`In since ${d} at ${t}`,
     staffListTitle:'Staff list', newStaffPh:'New staff name', add:'Add',
     modelsTitle:'Car models', newModelPh:'New model',
@@ -810,6 +818,7 @@ function renderDashboardPage(){
       <button class="btn-soft" onclick="manualRefresh()">${t('refresh')}</button>
     </div>
     <div class="stat-grid" id="stat-grid"></div>
+    <div id="overdue-alert"></div>
     <div class="card">
       <h3>${t('chartTitle')}</h3>
       <div style="position:relative; height:220px;">
@@ -823,30 +832,56 @@ function renderDashboardPage(){
   `;
 
   const today = todayStr();
-  const todayCount = RECORDS.filter(r=>r.date===today).length;
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const weekCount = RECORDS.filter(r=> new Date(r.date) >= weekAgo).length;
+  const todayIn  = RECORDS.filter(r=>r.date===today && r.direction==='in').length;
+  const todayOut = RECORDS.filter(r=>r.date===today && r.direction==='out').length;
+  const totalIn  = RECORDS.filter(r=>r.direction==='in').length;
   const inWorkshop = computeInWorkshop();
 
   document.getElementById('stat-grid').innerHTML = `
-    <div class="stat"><div class="num">${todayCount}</div><div class="lbl">${t('statToday')}</div></div>
-    <div class="stat"><div class="num">${weekCount}</div><div class="lbl">${t('statWeek')}</div></div>
+    <div class="stat"><div class="num" style="color:var(--in);">${todayIn}</div><div class="lbl">${t('statTodayIn')}</div></div>
+    <div class="stat"><div class="num" style="color:var(--out);">${todayOut}</div><div class="lbl">${t('statTodayOut')}</div></div>
     <div class="stat"><div class="num">${inWorkshop.length}</div><div class="lbl">${t('statInNow')}</div></div>
-    <div class="stat"><div class="num">${RECORDS.length}</div><div class="lbl">${t('statTotal')}</div></div>
+    <div class="stat"><div class="num">${totalIn}</div><div class="lbl">${t('statTotalIn')}</div></div>
   `;
 
+  /* --- overdue alert (> 7 days) --- */
+  const overdue = inWorkshop.filter(r=>{
+    const days = Math.floor((new Date() - new Date(r.date)) / 86400000);
+    return days >= 7;
+  });
+  const alertWrap = document.getElementById('overdue-alert');
+  if(overdue.length>0){
+    alertWrap.innerHTML = `
+      <div class="card" style="border-color:#c4501f; background:#fdf3ee;">
+        <h3 style="color:#c4501f; margin-bottom:10px;">${t('alertTitle')} (${overdue.length})</h3>
+        ${overdue.map(r=>{
+          const days = Math.floor((new Date() - new Date(r.date)) / 86400000);
+          return `<div class="rec" style="border-color:#f6c6b0;">
+            <div>
+              <div class="model" style="color:#c4501f;">${escapeHtml(r.model)} ${r.reg?'— '+escapeHtml(r.reg):''}</div>
+              <div class="meta">${escapeHtml(r.employee)} · دخلت ${r.date} · <strong>${t('daysIn')(days)}</strong></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  } else {
+    alertWrap.innerHTML = '';
+  }
+
+  /* --- IN-only models chart --- */
   const counts = {};
-  RECORDS.forEach(r=>{ counts[r.model] = (counts[r.model]||0)+1; });
+  RECORDS.filter(r=>r.direction==='in').forEach(r=>{ counts[r.model]=(counts[r.model]||0)+1; });
   const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const labels = sorted.map(s=>s[0]);
-  const data = sorted.map(s=>s[1]);
+  const data   = sorted.map(s=>s[1]);
 
   const ctx = document.getElementById('chart-models');
   if(modelsChart) modelsChart.destroy();
   if(labels.length>0 && typeof Chart !== 'undefined'){
     modelsChart = new Chart(ctx, {
       type:'bar',
-      data:{ labels, datasets:[{ label:'Count', data, backgroundColor:'#c4501f' }] },
+      data:{ labels, datasets:[{ label:'IN', data, backgroundColor:'#c4501f' }] },
       options:{
         responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{ display:false } },
@@ -855,18 +890,21 @@ function renderDashboardPage(){
     });
   }
 
+  /* --- cars in workshop now --- */
   const wsWrap = document.getElementById('in-workshop-list');
   if(inWorkshop.length===0){
     wsWrap.innerHTML = `<div class="empty">${t('noneInWorkshop')}</div>`;
   }else{
-    wsWrap.innerHTML = inWorkshop.map(r=>`
-      <div class="rec">
+    wsWrap.innerHTML = inWorkshop.map(r=>{
+      const days = Math.floor((new Date() - new Date(r.date)) / 86400000);
+      const isOld = days >= 7;
+      return `<div class="rec" ${isOld?'style="border-color:#f6c6b0; background:#fdf3ee;"':''}>
         <div>
-          <div class="model">${escapeHtml(r.model)} ${r.reg?('— '+escapeHtml(r.reg)):''}</div>
-          <div class="meta">${t('inSince')(r.date, r.time)} · ${escapeHtml(r.employee)}</div>
+          <div class="model">${escapeHtml(r.model)} ${r.reg?'— '+escapeHtml(r.reg):''} ${isOld?'⚠️':''}</div>
+          <div class="meta">${t('inSince')(r.date,r.time)} · ${escapeHtml(r.employee)} · <strong>${t('daysIn')(days)}</strong></div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 }
 
