@@ -895,26 +895,40 @@ function renderDashboardPage(){
   if(inWorkshop.length===0){
     wsWrap.innerHTML = `<div class="empty">${t('noneInWorkshop')}</div>`;
   }else{
-    wsWrap.innerHTML = inWorkshop.map(r=>{
-      const days = Math.floor((new Date() - new Date(r.date)) / 86400000);
-      const isOld = days >= 7;
-      return `<div class="rec" ${isOld?'style="border-color:#f6c6b0; background:#fdf3ee;"':''}>
-        <div>
-          <div class="model">${escapeHtml(r.model)} ${r.reg?'— '+escapeHtml(r.reg):''} ${isOld?'⚠️':''}</div>
-          <div class="meta">${t('inSince')(r.date,r.time)} · ${escapeHtml(r.employee)} · <strong>${t('daysIn')(days)}</strong></div>
-        </div>
-      </div>`;
-    }).join('');
+    wsWrap.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+      ${inWorkshop.map(r=>{
+        const days = Math.floor((new Date() - new Date(r.date)) / 86400000);
+        const isOld = days >= 7;
+        const badgeBg = isOld ? '#f5c4b3' : 'var(--in-bg)';
+        const badgeColor = isOld ? '#993c1d' : 'var(--in)';
+        const cardBg = isOld ? '#fdf3ee' : 'var(--surface)';
+        const cardBorder = isOld ? '#f0997b' : 'var(--line)';
+        const dividerColor = isOld ? '#f0997b' : 'var(--line)';
+        return `<div style="background:${cardBg};border:1px solid ${cardBorder};border-radius:12px;padding:12px;">
+          <div style="font-size:12px;font-weight:700;color:${badgeColor};background:${badgeBg};display:inline-block;padding:2px 8px;border-radius:20px;margin-bottom:8px;">${isOld?'⚠️ ':''} ${days} ${LANG==='ar'?'يوم':'d'}</div>
+          <div style="font-size:15px;font-weight:700;color:var(--ink);">${escapeHtml(r.model)}</div>
+          <div style="font-size:13px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(r.reg)||'—'}</div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:6px;border-top:1px solid ${dividerColor};padding-top:6px;">${escapeHtml(r.employee)} · ${r.date}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
   }
 }
 
 function computeInWorkshop(){
+  const norm = s => (s||'').trim().toUpperCase();
   const ins = RECORDS.filter(r=>r.direction==='in').sort((a,b)=> a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
   const outs = RECORDS.filter(r=>r.direction==='out');
   const usedOut = new Set();
   const stillIn = [];
   ins.forEach(inRec=>{
-    const matchIdx = outs.findIndex((o,i)=> !usedOut.has(i) && o.reg && o.reg===inRec.reg && o.date+o.time >= inRec.date+inRec.time);
+    const inReg = norm(inRec.reg);
+    const matchIdx = outs.findIndex((o,i)=>{
+      if(usedOut.has(i)) return false;
+      const outReg = norm(o.reg);
+      if(!inReg || !outReg) return false;
+      return outReg === inReg && o.date+o.time >= inRec.date+inRec.time;
+    });
     if(matchIdx>-1){ usedOut.add(matchIdx); }
     else{ stillIn.push(inRec); }
   });
